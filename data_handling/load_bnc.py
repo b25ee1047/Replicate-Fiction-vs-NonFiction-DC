@@ -23,48 +23,15 @@ Tagging:
 """
 
 import pandas as pd
-import numpy as np
 import nltk
 import xml.etree.ElementTree as ET
-from collections import Counter
 from pathlib import Path
+from data_handling.stylometric_features import (
+    group_pos_counts,
+    extract_19_features_ptb,
+)
 
 nltk.download('averaged_perceptron_tagger_eng', quiet=True)
-
-# ---------------------------------------------------------------------------
-# POS tag groupings — Penn Treebank (Table 3 of paper)
-# ---------------------------------------------------------------------------
-PTB_TAG_GROUPS = {
-    'ADJ':  {'JJ', 'JJR', 'JJS'},
-    'ADV':  {'RB', 'RBR', 'RBS', 'WRB'},
-    'NOUN': {'NN', 'NNS', 'NNP', 'NNPS'},
-    'VERB': {'VB', 'VBD', 'VBG', 'VBN', 'VBP', 'VBZ'},
-    'PRON': {'PRP', 'WP'},
-}
-
-# ---------------------------------------------------------------------------
-# Punctuation set — from Figure 4 of the paper
-# ` - , ; : ! ? / . ' ( ) [ ] { } $ * & % +
-# Plus unicode variants common in BNC XML
-# ---------------------------------------------------------------------------
-PUNCT_SET = {
-    '`', '-', ',', ';', ':', '!', '?', '/', '.', "'",
-    '(', ')', '[', ']', '{', '}', '$', '*', '&', '%', '+',
-    '--', '``', "''",
-    # Unicode equivalents present in BNC XML
-    '\u2014',   # em-dash  —
-    '\u2013',   # en-dash  –
-    '\u201c',   # left double quote  "
-    '\u201d',   # right double quote "
-    '\u2018',   # left single quote  '
-    '\u2019',   # right single quote '
-}
-
-HYPHEN_TOKENS   = {'-', '--', '\u2014', '\u2013'}          # - -- — –
-QUOTE_TOKENS    = {"'", '"', '``', "''", '\u201c', '\u201d', '\u2018', '\u2019'}
-EXCLAIM_TOKENS  = {'!'}
-QUESTION_TOKENS = {'?'}
-
 
 # ---------------------------------------------------------------------------
 # XML parsing helpers
@@ -121,13 +88,7 @@ def _read_bnc_document(xml_file):
 
 def _group_pos_counts(tag_list, tag_groups):
     """Count tags by broad POS category using the given grouping."""
-    grouped = {cat: 0 for cat in tag_groups}
-    for tag in tag_list:
-        for cat, tags in tag_groups.items():
-            if tag in tags:
-                grouped[cat] += 1
-                break
-    return grouped
+    return group_pos_counts(tag_list, tag_groups)
 
 
 # ---------------------------------------------------------------------------
@@ -152,71 +113,12 @@ def extract_document_features(xml_file, category):
     if not words:
         return None
 
-    # ------------------------------------------------------------------
-    # 1. Low-Level Normalized features
-    # ------------------------------------------------------------------
-    sent_lengths = [len(s) for s in sents]
-    word_lengths  = [len(w) for w in words if w.isalnum()]
-
-    # ------------------------------------------------------------------
-    # 2. Low-Level Ratio features
-    #    100-word non-overlapping chunks (Kessler et al., 1997)
-    # ------------------------------------------------------------------
-    chunk_size = 100
-    chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
-
-    ttr_list, punct_ttr_list = [], []
-    for chunk in chunks:
-        if not chunk:
-            continue
-        ttr_list.append(len(chunk) / len(set(chunk)))
-
-        punct_chunk = [w for w in chunk if w in PUNCT_SET]
-        if punct_chunk:
-            punct_ttr_list.append(len(punct_chunk) / len(set(punct_chunk)))
-
-    counts    = Counter(words)
-    hyphens   = sum(counts.get(t, 0) for t in HYPHEN_TOKENS)
-    quotes    = sum(counts.get(t, 0) for t in QUOTE_TOKENS)
-    exclaims  = sum(counts.get(t, 0) for t in EXCLAIM_TOKENS)
-    questions = sum(counts.get(t, 0) for t in QUESTION_TOKENS)
-
-    # ------------------------------------------------------------------
-    # 3. High-Level POS Ratio features — PTB tags only
-    # ------------------------------------------------------------------
-    tagged_raw = nltk.pos_tag(words)
-    raw_tags   = [t for _, t in tagged_raw]
-    pos = _group_pos_counts(raw_tags, PTB_TAG_GROUPS)
-
-    def ratio(num, den):
-        return num / den if den > 0 else 0.0
+    features = extract_19_features_ptb(words, sents)
 
     return {
         'FileID':               Path(xml_file).stem,
         'Category':             category,
-        # Low-Level Normalized
-        'Avg_Sentence_Length':  np.mean(sent_lengths),
-        'Avg_Word_Length':      np.mean(word_lengths) if word_lengths else 0.0,
-        'Std_Sentence_Length':  np.std(sent_lengths),
-        'Std_Word_Length':      np.std(word_lengths) if word_lengths else 0.0,
-        # Low-Level Ratios (TTR)
-        'Avg_Token_Type':       np.mean(ttr_list) if ttr_list else 0.0,
-        'Std_Token_Type':       np.std(ttr_list) if ttr_list else 0.0,
-        'Avg_Punct_Token_Type': np.mean(punct_ttr_list) if punct_ttr_list else 0.0,
-        'Std_Punct_Token_Type': np.std(punct_ttr_list) if punct_ttr_list else 0.0,
-        # Low-Level Ratios (Punctuation)
-        'Hyphen_Quote':         ratio(hyphens, quotes),
-        'Hyphen_Exclamation':   ratio(hyphens, exclaims),
-        'Quote_Question':       ratio(quotes, questions),
-        # High-Level POS Ratios
-        'Adverb_Noun':          ratio(pos['ADV'], pos['NOUN']),
-        'Adverb_Pronoun':       ratio(pos['ADV'], pos['PRON']),
-        'Adjective_Verb':       ratio(pos['ADJ'], pos['VERB']),
-        'Noun_Verb':            ratio(pos['NOUN'], pos['VERB']),
-        'Verb_Pronoun':         ratio(pos['VERB'], pos['PRON']),
-        'Adverb_Adjective':     ratio(pos['ADV'], pos['ADJ']),
-        'Adjective_Pronoun':    ratio(pos['ADJ'], pos['PRON']),
-        'Noun_Pronoun':         ratio(pos['NOUN'], pos['PRON']),
+        **features,
     }
 
 

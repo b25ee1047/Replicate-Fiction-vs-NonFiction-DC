@@ -38,8 +38,12 @@ from data_handling import (
 from feature_selection import run_two_stage_rfecv, ACTIVE_FEATURES
 from experiments import setup_a, setup_b, setup_c, table_5
 from visualize import plot_figure1, plot_figure2, plot_figure3, plot_figure4
+from jefp_analysis import run_jefp_external_analysis
 
 BNC_ROOT = "Corpus/baby_bnc/Texts"
+JEFP_ENABLED = os.getenv("ENABLE_JEFP", "0").strip().lower() in {"1", "true", "yes"}
+JEFP_ROOT = os.getenv("JEFP_ROOT")
+JEFP_METADATA = os.getenv("JEFP_METADATA")
 
 if __name__ == "__main__":
 
@@ -100,3 +104,24 @@ if __name__ == "__main__":
     print("  Figures  : plots/figure1_scatter.png, plots/figure2_pos.png, "
           "plots/figure3_punct.png, plots/figure4_lowlevel.png")
     print("="*70)
+
+    if JEFP_ENABLED:
+        if not JEFP_ROOT or not JEFP_METADATA:
+            print("[JEFP] Skipped: set JEFP_ROOT and JEFP_METADATA when ENABLE_JEFP=1.")
+        elif not os.path.exists(JEFP_ROOT):
+            print(f"[JEFP] Skipped: JEFP_ROOT does not exist ({JEFP_ROOT}).")
+        elif not os.path.exists(JEFP_METADATA):
+            print(f"[JEFP] Skipped: JEFP_METADATA does not exist ({JEFP_METADATA}).")
+        else:
+            print("\n" + "="*70)
+            print("OPTIONAL STEP — JEFP external evaluation")
+            print("="*70)
+            run_jefp_external_analysis(
+                jefp_root=JEFP_ROOT,
+                jefp_metadata=JEFP_METADATA,
+                scratch_dir="scratch/jefp",
+                plots_dir="plots/jefp",
+                derive_feature_sets=True,
+            )
+    else:
+        print("[JEFP] Skipped: optional stage disabled (set ENABLE_JEFP=1).")
